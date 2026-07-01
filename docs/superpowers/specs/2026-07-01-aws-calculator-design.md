@@ -346,9 +346,25 @@ Secrets sourced from `.env` (git-ignored): `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCE
 - Email enumeration avoided: request-link always returns 202.
 - No admin panel in v1. DB operations happen via `psql`.
 
-## Open items for the implementation plan
+## Resolved decisions
 
-- Exact PDF/CSV export layout.
-- Which SMTP provider for magic links (Mailgun / SES / Postmark) — decide before writing the mailer.
-- Initial supported display currencies list (default: USD, EUR, GBP, NGN, INR, JPY).
-- Whether to include a lightweight admin route for kicking off ingestion manually (`POST /admin/ingest`) protected by a static token in `.env`.
+- **SMTP for magic links**: Brevo (formerly Sendinblue) via SMTP relay. Credentials in `.env` as `SMTP_HOST=smtp-relay.brevo.com`, `SMTP_PORT=587`, `SMTP_USER`, `SMTP_PASS`, `SMTP_FROM`.
+- **Default display currencies**: USD, EUR, GBP, NGN. User can pick per-estimate; USD is the underlying storage currency.
+- **Admin ingest route**: `POST /api/v1/admin/ingest` protected by a static bearer token in `.env` (`ADMIN_TOKEN`). Triggers an out-of-band ingestion run for the given provider. Returns 202 with a run ID.
+- **PDF/CSV export layout**:
+  - PDF: cover page (estimate name, org, generated-at, currency, FX-as-of), summary table (service, region, monthly cost), itemized table per service (attributes snapshot rendered as key: value), totals footer. Generated with `gofpdf`.
+  - CSV: flat rows — `service, region, sku, quantity, unit, unit_price, monthly_cost, currency, attributes_json`.
+  - JSON: full estimate envelope including snapshots (schema-versioned as `"version": 1`).
+
+## UI quality bar
+
+The frontend is a first-class part of the product, not a debug shell over the API. Concretely:
+
+- Design system: Tailwind + a small set of custom Svelte primitives (Button, Input, Select, Combobox, Card, Sheet, Toast). No off-the-shelf component library that fights our aesthetic.
+- Type: Inter for UI, JetBrains Mono for prices/SKUs. Tabular figures for all money.
+- Layout: two-pane on desktop (catalog/form left, live-updating estimate cart right), single-pane on mobile with a sticky total.
+- Motion: subtle — 150ms ease transitions on state changes, no bounce, no gratuitous scroll animation.
+- Empty and loading states are designed, not stubbed. Skeletons match final layouts.
+- Accessible: keyboard-navigable throughout, labeled inputs, visible focus rings, contrast ≥ WCAG AA.
+- Dark mode from day one, driven by system preference with manual override.
+- Reference the `frontend-design` skill during implementation to keep the aesthetic distinctive, not generic.
