@@ -1,0 +1,79 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  api:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: awscalc
+          POSTGRES_PASSWORD: awscalc
+          POSTGRES_DB: awscalc
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd="pg_isready -U awscalc"
+          --health-interval=5s
+          --health-timeout=3s
+          --health-retries=20
+    defaults:
+      run:
+        working-directory: api
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.23"
+          cache-dependency-path: api/go.sum
+      - run: go vet ./...
+      - name: go test
+        env:
+          TEST_DATABASE_URL: postgres://awscalc:awscalc@localhost:5432/awscalc?sslmode=disable
+        run: go test ./... -race -count=1
+
+  web:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: npm ci
+      - run: npm run check
+      - run: npm run build
+
+  compose:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Write .env for compose
+        run: |
+          cp .env.example .env
+          sed -i 's/^POSTGRES_PASSWORD=.*/POSTGRES_PASSWORD=ci-password/' .env
+          sed -i 's/^API_DATABASE_URL=.*/API_DATABASE_URL=postgres:\/\/awscalc:ci-password@postgres:5432\/awscalc?sslmode=disable/' .env
+          sed -i 's/^ADMIN_TOKEN=.*/ADMIN_TOKEN=ci-token/' .env
+      - name: docker compose build
+        run: docker compose build
+      - name: docker compose up
+        run: docker compose up -d postgres api web
+      - name: wait for api
+        run: |
+          for i in $(seq 1 30); do
+            if curl -sf http://localhost:8080/healthz; then exit 0; fi
+            sleep 2
+          done
+          docker compose logs api
+          exit 1
+      - name: docker compose down
+        if: always()
+        run: docker compose down -v
