@@ -1,0 +1,3 @@
+DROP TABLE IF EXISTS ingestion_runs;
+DROP TABLE IF EXISTS fx_rates;
+DROP TABLE IF EXISTS providers;
