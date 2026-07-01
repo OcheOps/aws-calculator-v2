@@ -1,0 +1,27 @@
+# env
+.env
+.env.*
+!.env.example
+
+# go
+api/bin/
+api/tmp/
+*.test
+*.out
+
+# node
+web/node_modules/
+web/.svelte-kit/
+web/build/
+web/.env
+node_modules/
+
+# docker
+caddydata/
+pgdata/
+
+# editor
+.vscode/
+.idea/
+*.swp
+.DS_Store
