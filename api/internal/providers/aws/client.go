@@ -2,7 +2,6 @@ package aws
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"time"
 
@@ -10,7 +9,6 @@ import (
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/pricing"
-	"github.com/aws/aws-sdk-go-v2/service/pricing/types"
 )
 
 // PriceListRef identifies a downloadable AWS Pricing price-list file for a
@@ -28,7 +26,6 @@ type PriceListRef struct {
 type SDK interface {
 	ListServiceCodes(ctx context.Context) ([]string, error)
 	DescribeService(ctx context.Context, code string) ([]string, error)
-	GetProducts(ctx context.Context, code, region, token string) ([]json.RawMessage, string, error)
 	ListPriceLists(ctx context.Context, serviceCode string, effective time.Time) ([]PriceListRef, error)
 	GetPriceListFileURL(ctx context.Context, arn, format string) (string, error)
 }
@@ -45,10 +42,6 @@ func (c *Client) ListServices(ctx context.Context) ([]string, error) {
 
 func (c *Client) DescribeService(ctx context.Context, code string) ([]string, error) {
 	return c.sdk.DescribeService(ctx, code)
-}
-
-func (c *Client) GetProducts(ctx context.Context, code, region, token string) ([]json.RawMessage, string, error) {
-	return c.sdk.GetProducts(ctx, code, region, token)
 }
 
 // realSDK is the production implementation backed by aws-sdk-go-v2.
@@ -107,33 +100,6 @@ func (r *realSDK) DescribeService(ctx context.Context, code string) ([]string, e
 	return resp.Services[0].AttributeNames, nil
 }
 
-func (r *realSDK) GetProducts(ctx context.Context, code, region, token string) ([]json.RawMessage, string, error) {
-	in := &pricing.GetProductsInput{
-		ServiceCode: awssdk.String(code),
-		MaxResults:  awssdk.Int32(100),
-		Filters: []types.Filter{{
-			Field: awssdk.String("regionCode"),
-			Type:  types.FilterTypeTermMatch,
-			Value: awssdk.String(region),
-		}},
-	}
-	if token != "" {
-		in.NextToken = awssdk.String(token)
-	}
-	resp, err := r.client.GetProducts(ctx, in)
-	if err != nil {
-		return nil, "", fmt.Errorf("get products %s/%s: %w", code, region, err)
-	}
-	out := make([]json.RawMessage, 0, len(resp.PriceList))
-	for _, s := range resp.PriceList {
-		out = append(out, json.RawMessage(s))
-	}
-	next := ""
-	if resp.NextToken != nil {
-		next = *resp.NextToken
-	}
-	return out, next, nil
-}
 
 func (r *realSDK) ListPriceLists(ctx context.Context, serviceCode string, effective time.Time) ([]PriceListRef, error) {
 	var out []PriceListRef

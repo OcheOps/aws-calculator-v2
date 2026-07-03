@@ -2,15 +2,12 @@ package aws
 
 import (
 	"context"
-	"encoding/json"
 	"testing"
 	"time"
 )
 
 type fakeSDK struct {
-	services  []string
-	products  map[string][]string // key: serviceCode|region → JSON payloads
-	nextToken string
+	services []string
 }
 
 func (f *fakeSDK) ListServiceCodes(ctx context.Context) ([]string, error) {
@@ -19,16 +16,6 @@ func (f *fakeSDK) ListServiceCodes(ctx context.Context) ([]string, error) {
 
 func (f *fakeSDK) DescribeService(ctx context.Context, code string) ([]string, error) {
 	return []string{"instanceType", "regionCode"}, nil
-}
-
-func (f *fakeSDK) GetProducts(ctx context.Context, code, region, token string) ([]json.RawMessage, string, error) {
-	key := code + "|" + region
-	payloads := f.products[key]
-	out := make([]json.RawMessage, 0, len(payloads))
-	for _, p := range payloads {
-		out = append(out, json.RawMessage(p))
-	}
-	return out, "", nil
 }
 
 func (f *fakeSDK) ListPriceLists(ctx context.Context, serviceCode string, effective time.Time) ([]PriceListRef, error) {

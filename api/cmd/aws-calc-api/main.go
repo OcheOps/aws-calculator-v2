@@ -162,30 +162,16 @@ func registerAWS(ctx context.Context, registry *providers.Registry, cfg config.C
 	client := awsprov.NewClient(sdk)
 	regions := []string{"us-east-1", "us-west-2", "eu-west-1"}
 
-	var runFn func(ctx context.Context, deps providers.IngestDeps) error
-	switch cfg.IngestMode {
-	case "bulk", "":
-		bulkClient := awsprov.NewBulkClient(sdk)
-		pfStore := pricefiles.NewStore(pool)
-		ing := awsprov.NewBulkIngestor(client, bulkClient, pfStore, regions, cfg.IngestRegionConcurrency, cfg.IngestBatchSize)
-		runFn = func(ctx context.Context, deps providers.IngestDeps) error {
-			return ing.Run(ctx, deps.DB)
-		}
-		logger.Info("aws provider registered", "mode", "bulk", "regions", regions, "concurrency", cfg.IngestRegionConcurrency, "batchSize", cfg.IngestBatchSize)
-	case "paged":
-		ing := awsprov.NewIngestor(client, regions)
-		runFn = func(ctx context.Context, deps providers.IngestDeps) error {
-			return ing.Run(ctx, deps.DB)
-		}
-		logger.Info("aws provider registered", "mode", "paged", "regions", regions)
-	default:
-		return fmt.Errorf("unknown INGEST_MODE %q (want bulk|paged)", cfg.IngestMode)
-	}
-
+	bulkClient := awsprov.NewBulkClient(sdk)
+	pfStore := pricefiles.NewStore(pool)
+	ing := awsprov.NewBulkIngestor(client, bulkClient, pfStore, regions, cfg.IngestRegionConcurrency, cfg.IngestBatchSize)
 	registry.Register(providerAdapter{
 		meta: providers.Metadata{Code: "aws", Name: "Amazon Web Services"},
-		run:  runFn,
+		run: func(ctx context.Context, deps providers.IngestDeps) error {
+			return ing.Run(ctx, deps.DB)
+		},
 	})
+	logger.Info("aws provider registered", "regions", regions, "concurrency", cfg.IngestRegionConcurrency, "batchSize", cfg.IngestBatchSize)
 	return nil
 }
 

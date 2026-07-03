@@ -20,7 +20,6 @@ type Config struct {
 	AdminToken  string
 	AWS         AWSConfig
 	IngestCron              string
-	IngestMode              string
 	IngestRegionConcurrency int
 	IngestBatchSize         int
 	FXAPIURL                string
@@ -48,10 +47,9 @@ func Load() (Config, error) {
 			PricingRegion:   getenv("AWS_PRICING_REGION", "us-east-1"),
 		},
 		IngestCron:              getenv("INGEST_CRON", "0 3 * * *"),
-		IngestMode:              getenv("INGEST_MODE", "bulk"),
 		IngestRegionConcurrency: getenvInt("INGEST_REGION_CONCURRENCY", 3),
 		IngestBatchSize:         getenvInt("INGEST_BATCH_SIZE", 5000),
-		FXAPIURL:     getenv("FX_API_URL", "https://api.exchangerate.host"),
+		FXAPIURL:     getenv("FX_API_URL", "https://open.er-api.com"),
 		FXCron:       getenv("FX_CRON", "@hourly"),
 		BaseURL:      getenv("PUBLIC_BASE_URL", "http://localhost"),
 		CookieSecure: getenv("API_ENV", "development") == "production",
