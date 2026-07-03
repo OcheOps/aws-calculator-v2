@@ -51,6 +51,13 @@ func (o *Orchestrator) Run(ctx context.Context, p providers.Provider) error {
 	}
 	o.logger.Info("ingestion started", "provider", p.Metadata().Code, "run_id", runID)
 
+	// Truncate staging up-front so a partially-failed prior run cannot leak
+	// stale rows into this one. sku_prices_unique + ON CONFLICT DO NOTHING
+	// would otherwise pin those stale prices to the new run's outputs.
+	if _, err := o.pool.Exec(ctx, `TRUNCATE staging_sku_prices RESTART IDENTITY`); err != nil {
+		return fmt.Errorf("truncate staging: %w", err)
+	}
+
 	err = p.Ingest(ctx, providers.IngestDeps{DB: o.pool, Logger: o.logger, RunID: runID})
 	if err != nil {
 		_, uerr := o.pool.Exec(ctx, `UPDATE ingestion_runs SET status='failed', finished_at=NOW(), error=$1 WHERE id=$2`, err.Error(), runID)
