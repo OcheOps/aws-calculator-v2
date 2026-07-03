@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -87,7 +88,7 @@ func (i *Ingestor) ingestRegion(ctx context.Context, pool *pgxpool.Pool, service
 		if err := i.wait(ctx); err != nil {
 			return err
 		}
-		products, next, err := i.client.GetProducts(ctx, code, region, token)
+		products, next, err := i.getProductsWithRetry(ctx, code, region, token)
 		if err != nil {
 			return err
 		}
@@ -101,6 +102,57 @@ func (i *Ingestor) ingestRegion(ctx context.Context, pool *pgxpool.Pool, service
 		}
 		token = next
 	}
+}
+
+// getProductsWithRetry wraps GetProducts with a short exponential backoff for
+// transient network errors — most commonly HTTP/2 GOAWAY frames the AWS
+// Pricing endpoint sends on long-lived connections, which the SDK's default
+// retryer does not classify as retryable.
+func (i *Ingestor) getProductsWithRetry(ctx context.Context, code, region, token string) ([]json.RawMessage, string, error) {
+	const maxAttempts = 5
+	var lastErr error
+	backoff := 500 * time.Millisecond
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		products, next, err := i.client.GetProducts(ctx, code, region, token)
+		if err == nil {
+			return products, next, nil
+		}
+		lastErr = err
+		if !isTransient(err) {
+			return nil, "", err
+		}
+		select {
+		case <-ctx.Done():
+			return nil, "", ctx.Err()
+		case <-time.After(backoff):
+		}
+		backoff *= 2
+	}
+	return nil, "", fmt.Errorf("get products %s/%s after %d attempts: %w", code, region, maxAttempts, lastErr)
+}
+
+func isTransient(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := err.Error()
+	// HTTP/2 graceful shutdown, throttling, DNS blips, TCP resets.
+	for _, needle := range []string{
+		"GOAWAY",
+		"stream closed",
+		"connection reset",
+		"EOF",
+		"i/o timeout",
+		"ThrottlingException",
+		"TooManyRequestsException",
+		"RequestTimeout",
+		"deserialization failed",
+	} {
+		if strings.Contains(msg, needle) {
+			return true
+		}
+	}
+	return false
 }
 
 func (i *Ingestor) wait(ctx context.Context) error {
