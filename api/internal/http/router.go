@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"net/http"
 
+	"github.com/OcheOps/aws-calculator/api/internal/auth"
 	"github.com/OcheOps/aws-calculator/api/internal/catalog"
 	"github.com/OcheOps/aws-calculator/api/internal/httpapi"
 	"github.com/OcheOps/aws-calculator/api/internal/pricing"
@@ -12,12 +13,14 @@ import (
 )
 
 type Deps struct {
-	Ready      Readiness
-	Logger     *slog.Logger
-	Catalog    *catalog.Store
-	AdminToken string
-	Ingest     httpapi.IngestTrigger
-	Pricing    *pricing.Lookup
+	Ready       Readiness
+	Logger      *slog.Logger
+	Catalog     *catalog.Store
+	AdminToken  string
+	Ingest      httpapi.IngestTrigger
+	Pricing     *pricing.Lookup
+	Auth        *auth.Service
+	AuthOptions httpapi.AuthOptions
 }
 
 func NewRouter(d Deps) http.Handler {
@@ -33,6 +36,9 @@ func NewRouter(d Deps) http.Handler {
 	r.Get("/readyz", ReadyHandler(d.Ready).ServeHTTP)
 
 	r.Route("/api/v1", func(r chi.Router) {
+		if d.Auth != nil {
+			r.Use(httpapi.WithSession(d.Auth))
+		}
 		if d.Catalog != nil {
 			httpapi.MountCatalog(r, d.Catalog)
 		}
@@ -41,6 +47,9 @@ func NewRouter(d Deps) http.Handler {
 		}
 		if d.Pricing != nil {
 			httpapi.MountPricing(r, d.Pricing)
+		}
+		if d.Auth != nil {
+			httpapi.MountAuth(r, d.Auth, d.AuthOptions)
 		}
 	})
 

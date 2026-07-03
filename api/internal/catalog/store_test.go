@@ -19,7 +19,7 @@ func setupStore(t *testing.T) (*Store, context.Context) {
 		t.Fatalf("db open: %v", err)
 	}
 	t.Cleanup(pool.Close)
-	_, _ = pool.Exec(ctx, `DROP TABLE IF EXISTS staging_sku_prices, sku_prices, dimension_values, service_dimensions, services, ingestion_runs, fx_rates, providers, schema_migrations CASCADE`)
+	_, _ = pool.Exec(ctx, `DROP SCHEMA public CASCADE; CREATE SCHEMA public;`)
 	if err := db.Migrate(url); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}

@@ -12,12 +12,15 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/OcheOps/aws-calculator/api/internal/auth"
 	"github.com/OcheOps/aws-calculator/api/internal/catalog"
 	"github.com/OcheOps/aws-calculator/api/internal/config"
 	"github.com/OcheOps/aws-calculator/api/internal/db"
 	"github.com/OcheOps/aws-calculator/api/internal/fx"
 	httpx "github.com/OcheOps/aws-calculator/api/internal/http"
+	"github.com/OcheOps/aws-calculator/api/internal/httpapi"
 	"github.com/OcheOps/aws-calculator/api/internal/ingest"
+	"github.com/OcheOps/aws-calculator/api/internal/mail"
 	"github.com/OcheOps/aws-calculator/api/internal/pricing"
 	"github.com/OcheOps/aws-calculator/api/internal/providers"
 	awsprov "github.com/OcheOps/aws-calculator/api/internal/providers/aws"
@@ -91,13 +94,28 @@ func main() {
 	}
 	priceLookup := pricing.NewLookup(pricing.NewStore(pool), fxStore, priceCache, store)
 
+	var mailer mail.Mailer = mail.NewFake()
+	if cfg.SMTPUser != "" && cfg.SMTPPass != "" {
+		mailer = mail.NewSMTPMailer(cfg.SMTPHost, cfg.SMTPPort, cfg.SMTPUser, cfg.SMTPPass, cfg.SMTPFrom)
+		logger.Info("smtp mailer configured", "host", cfg.SMTPHost)
+	} else {
+		logger.Warn("no SMTP credentials; using fake mailer (messages logged only)")
+	}
+	authSvc := auth.NewService(
+		auth.NewStore(pool), mailer,
+		auth.NewLimiter(5, time.Hour), auth.NewLimiter(5, time.Hour),
+		cfg.BaseURL,
+	)
+
 	router := httpx.NewRouter(httpx.Deps{
-		Ready:      combinedReady{pool: pool, catalog: httpx.CatalogReadiness{Store: store}},
-		Logger:     logger,
-		Catalog:    store,
-		AdminToken: cfg.AdminToken,
-		Ingest:     trigger,
-		Pricing:    priceLookup,
+		Ready:       combinedReady{pool: pool, catalog: httpx.CatalogReadiness{Store: store}},
+		Logger:      logger,
+		Catalog:     store,
+		AdminToken:  cfg.AdminToken,
+		Ingest:      trigger,
+		Pricing:     priceLookup,
+		Auth:        authSvc,
+		AuthOptions: httpapi.AuthOptions{SecureCookie: cfg.CookieSecure, CookieDomain: cfg.CookieDomain},
 	})
 
 	srv := &http.Server{
