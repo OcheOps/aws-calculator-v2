@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"encoding/json"
+	"log/slog"
 	"net"
 	"net/http"
 	"strings"
@@ -25,7 +26,11 @@ func MountAuth(r chi.Router, svc *auth.Service, opts AuthOptions) {
 			WriteError(w, http.StatusBadRequest, "bad_request", "email is required")
 			return
 		}
-		_ = svc.RequestLink(r.Context(), body.Email, clientIP(r), r.UserAgent())
+		if err := svc.RequestLink(r.Context(), body.Email, clientIP(r), r.UserAgent()); err != nil {
+			// Never surface the reason to the client (avoids user enumeration + info leak),
+			// but log it so operators can see SMTP / rate-limit failures.
+			slog.Warn("request-link failed", "err", err, "email", body.Email)
+		}
 		WriteData(w, http.StatusAccepted, map[string]bool{"accepted": true}, nil)
 	})
 

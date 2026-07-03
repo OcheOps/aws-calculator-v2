@@ -28,6 +28,12 @@ services:
       INGEST_CRON: ${INGEST_CRON}
       FX_API_URL: ${FX_API_URL}
       FX_CRON: ${FX_CRON}
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL}
+      SMTP_HOST: ${SMTP_HOST}
+      SMTP_PORT: ${SMTP_PORT}
+      SMTP_USER: ${SMTP_USER}
+      SMTP_PASS: ${SMTP_PASS}
+      SMTP_FROM: ${SMTP_FROM}
     depends_on:
       postgres:
         condition: service_healthy

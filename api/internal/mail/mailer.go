@@ -3,6 +3,7 @@ package mail
 import (
 	"crypto/tls"
 	"fmt"
+	"log/slog"
 
 	"github.com/wneessen/go-mail"
 )
@@ -47,6 +48,7 @@ func (s *SMTPMailer) Send(to, subject, body string) error {
 
 type FakeMailer struct {
 	Messages []Message
+	Log      bool // when true, Send also writes the message to slog for demo/dev
 }
 
 type Message struct {
@@ -55,7 +57,15 @@ type Message struct {
 
 func NewFake() *FakeMailer { return &FakeMailer{} }
 
+// NewFakeWithLogging returns a fake mailer that also mirrors sends to slog
+// so operators running without real SMTP can still recover magic-link URLs
+// from container logs.
+func NewFakeWithLogging() *FakeMailer { return &FakeMailer{Log: true} }
+
 func (f *FakeMailer) Send(to, subject, body string) error {
 	f.Messages = append(f.Messages, Message{to, subject, body})
+	if f.Log {
+		slog.Info("fake mailer send", "to", to, "subject", subject, "body", body)
+	}
 	return nil
 }

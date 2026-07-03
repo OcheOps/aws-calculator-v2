@@ -52,7 +52,7 @@
 	<Select
 		bind:value={region}
 		label="Region"
-		options={regions.map((r) => ({ value: r.code, label: r.code }))}
+		options={(regions ?? []).map((r) => ({ value: r.code, label: r.code }))}
 	/>
 	{#each nonRegionDims as dim (dim.key)}
 		{#if dim.kind === 'numeric'}

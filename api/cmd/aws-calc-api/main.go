@@ -100,7 +100,8 @@ func main() {
 		mailer = mail.NewSMTPMailer(cfg.SMTPHost, cfg.SMTPPort, cfg.SMTPUser, cfg.SMTPPass, cfg.SMTPFrom)
 		logger.Info("smtp mailer configured", "host", cfg.SMTPHost)
 	} else {
-		logger.Warn("no SMTP credentials; using fake mailer (messages logged only)")
+		mailer = mail.NewFakeWithLogging()
+		logger.Warn("no SMTP credentials; using fake mailer (magic links printed to stdout)")
 	}
 	authStore := auth.NewStore(pool)
 	authSvc := auth.NewService(
