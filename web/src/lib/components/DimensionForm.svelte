@@ -3,6 +3,7 @@
 	import Select from './Select.svelte';
 	import { debounce } from '$lib/utils/debounce';
 	import { makeApi } from '$lib/api/client';
+	import { humaniseKey, humaniseRegion } from '$lib/utils/labels';
 	import type { Dimension, DimensionValue, Region, Service } from '$lib/api/types';
 
 	type Props = {
@@ -26,14 +27,21 @@
 	let dimValues = $state<Record<string, DimensionValue[]>>({});
 	let loading = $state<Record<string, boolean>>({});
 
-	const nonRegionDims = $derived(dimensions.filter((d) => d.kind !== 'region'));
+	// Push required dimensions to the top; optional ones sit below a divider so
+	// the form doesn't overwhelm on first render.
+	const nonRegionDims = $derived(
+		dimensions
+			.filter((d) => d.kind !== 'region')
+			.slice()
+			.sort((a, b) => Number(b.is_required) - Number(a.is_required) || a.sort_order - b.sort_order)
+	);
+	const requiredKeys = $derived(new Set(nonRegionDims.filter((d) => d.is_required).map((d) => d.key)));
+	const missingRequired = $derived(
+		region === '' || [...requiredKeys].some((k) => !values[k])
+	);
 
 	const emit = debounce(() => {
-		if (!region) return;
-		const required = dimensions.filter((d) => d.is_required && d.kind !== 'region').map((d) => d.key);
-		for (const k of required) {
-			if (!values[k]) return;
-		}
+		if (missingRequired) return;
 		onChange({ region, term: 'OnDemand', attributes: { ...values } });
 	}, 250);
 
@@ -57,28 +65,46 @@
 <div class="space-y-4">
 	<Select
 		bind:value={region}
-		label="Region"
-		options={(regions ?? []).map((r) => ({ value: r.code, label: r.code }))}
+		label="Region *"
+		placeholder="Choose a region…"
+		options={(regions ?? []).map((r) => ({ value: r.code, label: humaniseRegion(r.code) }))}
 	/>
-	{#each nonRegionDims as dim (dim.key)}
-		{#if dim.kind === 'numeric'}
-			<Input type="number" label={dim.label} bind:value={values[dim.key]} />
-		{:else if dim.kind === 'freeform'}
-			<Input label={dim.label} bind:value={values[dim.key]} />
-		{:else}
-			<!-- kind === 'enum' -->
-			<div
-				onfocusin={() => loadValues(dim.key)}
-				onmouseenter={() => loadValues(dim.key)}
-				role="none"
-			>
-				<Select
+
+	{#if region === ''}
+		<p class="text-xs text-[--color-text-muted]">
+			Pick a region first — the rest of the form comes to life once you do.
+		</p>
+	{:else}
+		{#each nonRegionDims as dim (dim.key)}
+			{#if dim.kind === 'numeric'}
+				<Input
+					type="number"
+					label={humaniseKey(dim.label || dim.key) + (dim.is_required ? ' *' : '')}
 					bind:value={values[dim.key]}
-					label={dim.label + (dim.is_required ? ' *' : '')}
-					options={(dimValues[dim.key] ?? []).map((v) => ({ value: v.value, label: v.label }))}
-					placeholder={loading[dim.key] ? 'Loading…' : 'Select…'}
 				/>
-			</div>
-		{/if}
-	{/each}
+			{:else if dim.kind === 'freeform'}
+				<Input
+					label={humaniseKey(dim.label || dim.key) + (dim.is_required ? ' *' : '')}
+					bind:value={values[dim.key]}
+				/>
+			{:else}
+				<!-- kind === 'enum' -->
+				<div
+					onfocusin={() => loadValues(dim.key)}
+					onmouseenter={() => loadValues(dim.key)}
+					role="none"
+				>
+					<Select
+						bind:value={values[dim.key]}
+						label={humaniseKey(dim.label || dim.key) + (dim.is_required ? ' *' : '')}
+						options={(dimValues[dim.key] ?? []).map((v) => ({
+							value: v.value,
+							label: v.label ?? v.value
+						}))}
+						placeholder={loading[dim.key] ? 'Loading…' : 'Select…'}
+					/>
+				</div>
+			{/if}
+		{/each}
+	{/if}
 </div>

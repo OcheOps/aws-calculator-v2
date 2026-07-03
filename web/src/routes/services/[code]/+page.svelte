@@ -9,6 +9,7 @@
 	import { currency } from '$lib/stores/currency.svelte';
 	import { cart } from '$lib/stores/cart.svelte';
 	import { makeApi } from '$lib/api/client';
+	import { humaniseUnit } from '$lib/utils/labels';
 	import type { PriceResponse } from '$lib/api/types';
 
 	const api = makeApi();
@@ -97,22 +98,29 @@
 						dropped={livePrice.dropped_attributes}
 					/>
 				</div>
-				<p class="mt-2 text-xs text-[--color-text-muted]">per {livePrice.unit}</p>
+				<p class="mt-2 text-xs text-[--color-text-muted]">{humaniseUnit(livePrice.unit)}</p>
 				{#if livePrice.fx_rate}
 					<p class="mt-1 text-[10px] text-[--color-text-muted]">
-						FX rate {livePrice.fx_rate} · {livePrice.fx_as_of ?? ''}
+						FX rate {livePrice.fx_rate}{livePrice.fx_as_of
+							? ` · as of ${new Date(livePrice.fx_as_of).toLocaleDateString()}`
+							: ''}
 					</p>
 				{/if}
 				<div class="mt-4">
 					<Input label="Quantity" type="number" bind:value={quantity} />
 				</div>
 				<div class="mt-3 flex justify-end">
-					<Button onclick={addToEstimate}>Add to estimate</Button>
+					<Button onclick={addToEstimate} disabled={!livePrice}>Add to estimate</Button>
 				</div>
 			{:else if priceError}
-				<p class="text-sm text-red-500">{priceError}</p>
+				<p class="text-sm text-red-500">Could not price: {priceError}</p>
+				<p class="mt-2 text-xs text-[--color-text-muted]">
+					Try widening one of the enum filters — some attribute combinations don't have a SKU.
+				</p>
 			{:else}
-				<p class="text-sm text-[--color-text-muted]">Fill in required attributes to price.</p>
+				<p class="text-sm text-[--color-text-muted]">
+					Fill in the required (*) attributes to see a live price.
+				</p>
 			{/if}
 		</Card>
 		<EstimateCart />

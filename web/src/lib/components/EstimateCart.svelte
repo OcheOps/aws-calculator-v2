@@ -7,6 +7,7 @@
 	import Input from './Input.svelte';
 	import Card from './Card.svelte';
 	import { makeApi } from '$lib/api/client';
+	import { humaniseRegion } from '$lib/utils/labels';
 	import { goto } from '$app/navigation';
 
 	const api = makeApi();
@@ -55,17 +56,21 @@
 
 <Card title="Estimate">
 	{#if cart.lines.length === 0}
-		<p class="text-sm text-[--color-text-muted]">
-			Add items by picking a region and required attributes on the left.
-		</p>
+		<div class="flex flex-col items-start gap-2 py-2">
+			<div class="text-xl" aria-hidden="true">🧮</div>
+			<p class="text-sm text-[--color-text-muted]">
+				Nothing added yet. Pick a region and the required attributes on the left, then
+				<span class="text-[--color-text]">Add to estimate</span>.
+			</p>
+		</div>
 	{:else}
 		<ul class="space-y-2 text-sm">
 			{#each cart.lines as line, i (i)}
 				<li class="flex items-baseline justify-between gap-2">
 					<div class="min-w-0">
 						<div class="truncate font-medium">{line.service_code}</div>
-						<div class="mono truncate text-xs text-[--color-text-muted]">
-							{line.region_code} · {line.sku} · qty {line.quantity}
+						<div class="truncate text-xs text-[--color-text-muted]">
+							{humaniseRegion(line.region_code).split(' · ')[0]} · qty {line.quantity}
 						</div>
 					</div>
 					<div class="flex items-center gap-2">

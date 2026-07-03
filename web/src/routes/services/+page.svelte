@@ -40,12 +40,23 @@
 				give it a few minutes.
 			</p>
 		</Card>
-	{:else if data.services.length === 0}
+	{:else if data.services.length === 0 && data.q}
 		<Card>
 			<p class="text-sm text-[--color-text-muted]">
-				No services yet. If this is a fresh install, kick off ingestion via <code
-					class="mono">POST /api/v1/admin/ingest</code
-				>.
+				No services match <span class="mono text-[--color-text]">"{data.q}"</span>. Try a
+				shorter or different query.
+			</p>
+		</Card>
+	{:else if data.services.length === 0}
+		<Card title="Catalog not populated yet">
+			<p class="text-sm text-[--color-text-muted]">
+				If this is a fresh install, trigger the first ingest with
+			</p>
+			<pre class="mono mt-3 rounded-md border border-[--color-border] bg-[--color-surface] p-3 text-[11px] leading-relaxed"><code>curl -X POST \
+  -H "Authorization: Bearer $ADMIN_TOKEN" \
+  https://calc.example/api/v1/admin/ingest?provider=aws</code></pre>
+			<p class="mt-3 text-xs text-[--color-text-muted]">
+				First run takes ~30 minutes; subsequent refreshes finish in seconds via ETag skip.
 			</p>
 		</Card>
 	{:else}
