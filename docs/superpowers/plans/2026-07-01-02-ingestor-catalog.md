@@ -134,8 +134,13 @@ CREATE TABLE sku_prices (
     offering_class    TEXT,
     attributes        JSONB NOT NULL DEFAULT '{}'::jsonb,
     effective_from    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    effective_to      TIMESTAMPTZ,
-    UNIQUE (service_id, sku, region_code, term_type, COALESCE(purchase_option,''), COALESCE(lease_length,''))
+    effective_to      TIMESTAMPTZ
+);
+-- Postgres does not allow COALESCE() inside a table-level UNIQUE constraint,
+-- so we express the same semantics with a partial-agnostic expression index.
+CREATE UNIQUE INDEX sku_prices_unique ON sku_prices (
+    service_id, sku, region_code, term_type,
+    COALESCE(purchase_option, ''), COALESCE(lease_length, '')
 );
 CREATE INDEX sku_prices_service_region ON sku_prices (service_id, region_code);
 CREATE INDEX sku_prices_attrs_gin ON sku_prices USING GIN (attributes jsonb_path_ops);
