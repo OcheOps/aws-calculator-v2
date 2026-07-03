@@ -16,7 +16,13 @@
 
 	const api = makeApi();
 	let region = $state('');
-	let values = $state<Record<string, string>>({});
+	// Pre-populate each dimension slot with an empty string so Svelte 5's
+	// bind:value never sees `undefined` (throws props_invalid_value).
+	const initialValues: Record<string, string> = {};
+	for (const d of dimensions) {
+		if (d.kind !== 'region') initialValues[d.key] = '';
+	}
+	let values = $state<Record<string, string>>(initialValues);
 	let dimValues = $state<Record<string, DimensionValue[]>>({});
 	let loading = $state<Record<string, boolean>>({});
 
