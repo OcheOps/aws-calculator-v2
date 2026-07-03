@@ -22,6 +22,12 @@ services:
       API_LOG_LEVEL: ${API_LOG_LEVEL}
       API_ENV: ${API_ENV}
       ADMIN_TOKEN: ${ADMIN_TOKEN}
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
+      AWS_PRICING_REGION: ${AWS_PRICING_REGION}
+      INGEST_CRON: ${INGEST_CRON}
+      FX_API_URL: ${FX_API_URL}
+      FX_CRON: ${FX_CRON}
     depends_on:
       postgres:
         condition: service_healthy
