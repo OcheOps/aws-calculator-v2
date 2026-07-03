@@ -15,8 +15,10 @@ import (
 	"github.com/OcheOps/aws-calculator/api/internal/catalog"
 	"github.com/OcheOps/aws-calculator/api/internal/config"
 	"github.com/OcheOps/aws-calculator/api/internal/db"
+	"github.com/OcheOps/aws-calculator/api/internal/fx"
 	httpx "github.com/OcheOps/aws-calculator/api/internal/http"
 	"github.com/OcheOps/aws-calculator/api/internal/ingest"
+	"github.com/OcheOps/aws-calculator/api/internal/pricing"
 	"github.com/OcheOps/aws-calculator/api/internal/providers"
 	awsprov "github.com/OcheOps/aws-calculator/api/internal/providers/aws"
 	"github.com/OcheOps/aws-calculator/api/internal/workers"
@@ -65,16 +67,37 @@ func main() {
 			logger.Warn("failed to schedule aws ingest", "err", err)
 		}
 	}
+	fxStore := fx.NewStore(pool)
+	fxRefresher := fx.NewRefresher(fx.NewHTTPClient(cfg.FXAPIURL), fxStore, []string{"EUR", "GBP", "NGN"})
+	if err := sched.Add(cfg.FXCron, func(c context.Context) error {
+		return fxRefresher.Refresh(c)
+	}); err != nil {
+		logger.Warn("failed to schedule fx refresh", "err", err)
+	}
+	go func() {
+		if err := fxRefresher.Refresh(context.Background()); err != nil {
+			logger.Warn("initial fx refresh failed", "err", err)
+		}
+	}()
+
 	sched.Start(ctx)
 	defer sched.Stop()
 
 	store := catalog.NewStore(pool)
+	priceCache, err := pricing.NewCache(1<<15, 5*time.Minute)
+	if err != nil {
+		logger.Error("price cache init failed", "err", err)
+		os.Exit(1)
+	}
+	priceLookup := pricing.NewLookup(pricing.NewStore(pool), fxStore, priceCache, store)
+
 	router := httpx.NewRouter(httpx.Deps{
 		Ready:      combinedReady{pool: pool, catalog: httpx.CatalogReadiness{Store: store}},
 		Logger:     logger,
 		Catalog:    store,
 		AdminToken: cfg.AdminToken,
 		Ingest:     trigger,
+		Pricing:    priceLookup,
 	})
 
 	srv := &http.Server{

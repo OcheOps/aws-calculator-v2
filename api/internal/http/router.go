@@ -7,6 +7,7 @@ import (
 
 	"github.com/OcheOps/aws-calculator/api/internal/catalog"
 	"github.com/OcheOps/aws-calculator/api/internal/httpapi"
+	"github.com/OcheOps/aws-calculator/api/internal/pricing"
 	"github.com/go-chi/chi/v5"
 )
 
@@ -16,6 +17,7 @@ type Deps struct {
 	Catalog    *catalog.Store
 	AdminToken string
 	Ingest     httpapi.IngestTrigger
+	Pricing    *pricing.Lookup
 }
 
 func NewRouter(d Deps) http.Handler {
@@ -36,6 +38,9 @@ func NewRouter(d Deps) http.Handler {
 		}
 		if d.Ingest != nil {
 			httpapi.MountAdmin(r, d.AdminToken, d.Ingest)
+		}
+		if d.Pricing != nil {
+			httpapi.MountPricing(r, d.Pricing)
 		}
 	})
 

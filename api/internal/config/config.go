@@ -19,6 +19,8 @@ type Config struct {
 	AdminToken  string
 	AWS         AWSConfig
 	IngestCron  string
+	FXAPIURL    string
+	FXCron      string
 }
 
 func Load() (Config, error) {
@@ -34,6 +36,8 @@ func Load() (Config, error) {
 			PricingRegion:   getenv("AWS_PRICING_REGION", "us-east-1"),
 		},
 		IngestCron: getenv("INGEST_CRON", "0 3 * * *"),
+		FXAPIURL:   getenv("FX_API_URL", "https://api.exchangerate.host"),
+		FXCron:     getenv("FX_CRON", "@hourly"),
 	}
 	if cfg.DatabaseURL == "" {
 		return Config{}, fmt.Errorf("API_DATABASE_URL is required")
