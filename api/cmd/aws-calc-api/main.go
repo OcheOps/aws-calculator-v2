@@ -3,16 +3,23 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
+	"sync"
 	"syscall"
 	"time"
 
+	"github.com/OcheOps/aws-calculator/api/internal/catalog"
 	"github.com/OcheOps/aws-calculator/api/internal/config"
 	"github.com/OcheOps/aws-calculator/api/internal/db"
 	httpx "github.com/OcheOps/aws-calculator/api/internal/http"
+	"github.com/OcheOps/aws-calculator/api/internal/ingest"
+	"github.com/OcheOps/aws-calculator/api/internal/providers"
+	awsprov "github.com/OcheOps/aws-calculator/api/internal/providers/aws"
+	"github.com/OcheOps/aws-calculator/api/internal/workers"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -41,9 +48,33 @@ func main() {
 	}
 	defer pool.Close()
 
+	registry := providers.NewRegistry()
+	if err := registerAWS(ctx, registry, cfg, logger); err != nil {
+		logger.Warn("aws provider not registered", "err", err)
+	}
+
+	orch := ingest.NewOrchestrator(pool).WithLogger(logger)
+	trigger := &ingestTrigger{orch: orch, registry: registry, pool: pool, logger: logger}
+
+	sched := workers.NewScheduler().WithLogger(logger)
+	if _, hasAWS := registry.Get("aws"); hasAWS {
+		if err := sched.Add(cfg.IngestCron, func(c context.Context) error {
+			_, err := trigger.Trigger("aws")
+			return err
+		}); err != nil {
+			logger.Warn("failed to schedule aws ingest", "err", err)
+		}
+	}
+	sched.Start(ctx)
+	defer sched.Stop()
+
+	store := catalog.NewStore(pool)
 	router := httpx.NewRouter(httpx.Deps{
-		Ready:  dbReadiness{pool: pool},
-		Logger: logger,
+		Ready:      combinedReady{pool: pool, catalog: httpx.CatalogReadiness{Store: store}},
+		Logger:     logger,
+		Catalog:    store,
+		AdminToken: cfg.AdminToken,
+		Ingest:     trigger,
 	})
 
 	srv := &http.Server{
@@ -51,7 +82,6 @@ func main() {
 		Handler:           router,
 		ReadHeaderTimeout: 5 * time.Second,
 	}
-
 	go func() {
 		logger.Info("http listening", "addr", cfg.ListenAddr)
 		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
@@ -69,15 +99,90 @@ func main() {
 	logger.Info("shutdown complete")
 }
 
-type dbReadiness struct{ pool *pgxpool.Pool }
+func registerAWS(ctx context.Context, registry *providers.Registry, cfg config.Config, logger *slog.Logger) error {
+	if cfg.AWS.AccessKeyID == "" || cfg.AWS.SecretAccessKey == "" {
+		return fmt.Errorf("AWS credentials not configured; ingestion disabled")
+	}
+	sdk, err := awsprov.NewRealSDK(ctx, cfg.AWS.AccessKeyID, cfg.AWS.SecretAccessKey, cfg.AWS.PricingRegion)
+	if err != nil {
+		return err
+	}
+	client := awsprov.NewClient(sdk)
+	regions := []string{"us-east-1", "us-west-2", "eu-west-1"}
+	ing := awsprov.NewIngestor(client, regions)
+	registry.Register(providerAdapter{
+		meta: providers.Metadata{Code: "aws", Name: "Amazon Web Services"},
+		run: func(ctx context.Context, deps providers.IngestDeps) error {
+			return ing.Run(ctx, deps.DB)
+		},
+	})
+	logger.Info("aws provider registered", "regions", regions)
+	return nil
+}
 
-func (d dbReadiness) Ready(ctx context.Context) (bool, string) {
+type providerAdapter struct {
+	meta providers.Metadata
+	run  func(ctx context.Context, deps providers.IngestDeps) error
+}
+
+func (p providerAdapter) Metadata() providers.Metadata { return p.meta }
+func (p providerAdapter) Ingest(ctx context.Context, deps providers.IngestDeps) error {
+	return p.run(ctx, deps)
+}
+
+type ingestTrigger struct {
+	mu       sync.Mutex
+	running  bool
+	orch     *ingest.Orchestrator
+	registry *providers.Registry
+	pool     *pgxpool.Pool
+	logger   *slog.Logger
+}
+
+func (t *ingestTrigger) Trigger(providerCode string) (int64, error) {
+	t.mu.Lock()
+	if t.running {
+		t.mu.Unlock()
+		return 0, fmt.Errorf("ingestion already running")
+	}
+	t.running = true
+	t.mu.Unlock()
+
+	p, ok := t.registry.Get(providerCode)
+	if !ok {
+		t.mu.Lock()
+		t.running = false
+		t.mu.Unlock()
+		return 0, fmt.Errorf("provider %s not registered", providerCode)
+	}
+
+	go func() {
+		defer func() {
+			t.mu.Lock()
+			t.running = false
+			t.mu.Unlock()
+		}()
+		ctx, cancel := context.WithTimeout(context.Background(), 8*time.Hour)
+		defer cancel()
+		if err := t.orch.Run(ctx, p); err != nil {
+			t.logger.Error("ingestion run failed", "err", err, "provider", providerCode)
+		}
+	}()
+	return 0, nil
+}
+
+type combinedReady struct {
+	pool    *pgxpool.Pool
+	catalog httpx.CatalogReadiness
+}
+
+func (c combinedReady) Ready(ctx context.Context) (bool, string) {
 	pingCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
 	defer cancel()
-	if err := d.pool.Ping(pingCtx); err != nil {
+	if err := c.pool.Ping(pingCtx); err != nil {
 		return false, "db unreachable: " + err.Error()
 	}
-	return true, "ok"
+	return c.catalog.Ready(ctx)
 }
 
 func newLogger(level string) *slog.Logger {
