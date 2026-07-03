@@ -36,13 +36,27 @@
 			.sort((a, b) => Number(b.is_required) - Number(a.is_required) || a.sort_order - b.sort_order)
 	);
 	const requiredKeys = $derived(new Set(nonRegionDims.filter((d) => d.is_required).map((d) => d.key)));
-	const missingRequired = $derived(
-		region === '' || [...requiredKeys].some((k) => !values[k])
+	const filledCount = $derived(
+		nonRegionDims.filter((d) => (values[d.key] ?? '') !== '').length
+	);
+	// Fire /price once EITHER (a) every dimension the ingestor marked required
+	// is set, or (b) at least one attribute is filled. Most AWS services have
+	// no explicitly-required attribute in the API, and firing on a bare region
+	// almost always fails the SKU match and surfaces a scary "Not Found".
+	const readyToPrice = $derived(
+		region !== '' &&
+			(requiredKeys.size > 0
+				? [...requiredKeys].every((k) => (values[k] ?? '') !== '')
+				: filledCount > 0)
 	);
 
 	const emit = debounce(() => {
-		if (missingRequired) return;
-		onChange({ region, term: 'OnDemand', attributes: { ...values } });
+		if (!readyToPrice) return;
+		// Send only the attributes the user actually filled — empty strings
+		// match nothing against the JSONB containment operator.
+		const attrs: Record<string, string> = {};
+		for (const [k, v] of Object.entries(values)) if (v) attrs[k] = v;
+		onChange({ region, term: 'OnDemand', attributes: attrs });
 	}, 250);
 
 	$effect(() => {

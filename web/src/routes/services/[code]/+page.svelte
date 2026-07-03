@@ -119,7 +119,8 @@
 				</p>
 			{:else}
 				<p class="text-sm text-[--color-text-muted]">
-					Fill in the required (*) attributes to see a live price.
+					Pick a region and at least one attribute (like instance type) to see a live price.
+					More attributes narrows it further.
 				</p>
 			{/if}
 		</Card>
