@@ -20,7 +20,10 @@ type BulkClient struct {
 }
 
 func NewBulkClient(sdk SDK) *BulkClient {
-	return &BulkClient{sdk: sdk, httpc: &http.Client{Timeout: 10 * time.Minute}}
+	// No per-request timeout: the ingestion orchestrator wraps each run in an
+	// 8-hour context. EC2 alone can push ~500 MB per region and a 10-minute
+	// wall-clock cap trips before download completes on slower links.
+	return &BulkClient{sdk: sdk, httpc: &http.Client{}}
 }
 
 // SKURow is one priced SKU emitted by DownloadAndStream. Callers accumulate

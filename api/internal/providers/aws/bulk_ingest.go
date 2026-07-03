@@ -197,6 +197,11 @@ func (i *BulkIngestor) ingestRegionFile(
 	if err := i.limiter.Wait(ctx); err != nil {
 		return err
 	}
+	// Purge any seeded rows for this service+region so freshly-downloaded
+	// prices replace them instead of being no-op'd by ON CONFLICT DO NOTHING.
+	if _, err := pool.Exec(ctx, `DELETE FROM staging_sku_prices WHERE service_id=$1 AND region_code=$2`, serviceID, pl.Region); err != nil {
+		return fmt.Errorf("purge staged region rows: %w", err)
+	}
 	rows := make(chan SKURow, 512)
 	errCh := make(chan error, 1)
 	go func() {

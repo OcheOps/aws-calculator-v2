@@ -51,11 +51,26 @@ func (o *Orchestrator) Run(ctx context.Context, p providers.Provider) error {
 	}
 	o.logger.Info("ingestion started", "provider", p.Metadata().Code, "run_id", runID)
 
-	// Truncate staging up-front so a partially-failed prior run cannot leak
-	// stale rows into this one. sku_prices_unique + ON CONFLICT DO NOTHING
-	// would otherwise pin those stale prices to the new run's outputs.
+	// Seed staging from the current authoritative catalog. When the bulk
+	// ingestor skips an unchanged file (ETag match) it writes nothing to
+	// staging for that service+region — without seeding, the atomic swap
+	// would delete those SKUs from sku_prices. Seeded rows are overwritten
+	// naturally when the ingestor DOES process a file (per-service upsert
+	// semantics via ON CONFLICT DO NOTHING against fresh rows).
 	if _, err := o.pool.Exec(ctx, `TRUNCATE staging_sku_prices RESTART IDENTITY`); err != nil {
 		return fmt.Errorf("truncate staging: %w", err)
+	}
+	if _, err := o.pool.Exec(ctx, `
+		INSERT INTO staging_sku_prices (
+			service_id, sku, region_code, unit, currency, price_per_unit,
+			term_type, purchase_option, lease_length, offering_class,
+			attributes, effective_from, effective_to
+		)
+		SELECT service_id, sku, region_code, unit, currency, price_per_unit,
+		       term_type, purchase_option, lease_length, offering_class,
+		       attributes, effective_from, effective_to
+		FROM sku_prices`); err != nil {
+		return fmt.Errorf("seed staging from sku_prices: %w", err)
 	}
 
 	err = p.Ingest(ctx, providers.IngestDeps{DB: o.pool, Logger: o.logger, RunID: runID})
