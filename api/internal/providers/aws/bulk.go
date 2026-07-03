@@ -230,21 +230,30 @@ func WriteDimensionsAndValues(ctx context.Context, pool *pgxpool.Pool, serviceID
 	seenVals := map[string]struct{}{}
 	type kv struct{ key, value string }
 	var vals []kv
+	addKV := func(k, v string) {
+		if _, ok := keyIdx[k]; !ok {
+			keyIdx[k] = len(keys)
+			keys = append(keys, k)
+		}
+		if v == "" {
+			return
+		}
+		cacheKey := k + "\x00" + v
+		if _, ok := seenVals[cacheKey]; ok {
+			return
+		}
+		seenVals[cacheKey] = struct{}{}
+		vals = append(vals, kv{k, v})
+	}
 	for _, r := range rows {
 		for k, v := range r.Attributes {
-			if _, ok := keyIdx[k]; !ok {
-				keyIdx[k] = len(keys)
-				keys = append(keys, k)
-			}
-			if v == "" {
-				continue
-			}
-			cacheKey := k + "\x00" + v
-			if _, ok := seenVals[cacheKey]; ok {
-				continue
-			}
-			seenVals[cacheKey] = struct{}{}
-			vals = append(vals, kv{k, v})
+			addKV(k, v)
+		}
+		// termType lives in the outer JSON structure (terms.OnDemand /
+		// terms.Reserved / …), not on product.attributes. Surface it as a
+		// dimension value so the UI can offer it as a filter.
+		if r.TermType != "" {
+			addKV("termType", r.TermType)
 		}
 	}
 

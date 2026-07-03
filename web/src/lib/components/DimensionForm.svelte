@@ -69,10 +69,31 @@
 		if (dimValues[dim] || loading[dim]) return;
 		loading[dim] = true;
 		try {
-			dimValues[dim] = await api.dimensionValues(service.code, dim);
+			dimValues[dim] = (await api.dimensionValues(service.code, dim)) ?? [];
 		} finally {
 			loading[dim] = false;
 		}
+	}
+
+	// Pre-fetch all enum dimension values as soon as a region is picked so we
+	// can hide the ones with no catalogued values instead of showing dead
+	// dropdowns. Cheap: server-side pagination caps N.
+	$effect(() => {
+		if (!region) return;
+		for (const d of nonRegionDims) {
+			if (d.kind === 'enum') void loadValues(d.key);
+		}
+	});
+
+	function shouldShow(dim: (typeof nonRegionDims)[number]): boolean {
+		if (dim.kind !== 'enum') return true;
+		if (loading[dim.key]) return true;
+		const values = dimValues[dim.key];
+		// Loaded and empty → hide unless the dim is explicitly required.
+		if (values !== undefined && values.length === 0) {
+			return dim.is_required;
+		}
+		return true;
 	}
 </script>
 
@@ -89,7 +110,7 @@
 			Pick a region first — the rest of the form comes to life once you do.
 		</p>
 	{:else}
-		{#each nonRegionDims as dim (dim.key)}
+		{#each nonRegionDims.filter(shouldShow) as dim (dim.key)}
 			{#if dim.kind === 'numeric'}
 				<Input
 					type="number"
