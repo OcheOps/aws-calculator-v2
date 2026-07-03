@@ -22,7 +22,7 @@ func TestMigrate_AppliesInitialSchema(t *testing.T) {
 	defer pool.Close()
 
 	// Ensure a clean slate.
-	_, _ = pool.Exec(ctx, `DROP TABLE IF EXISTS schema_migrations, ingestion_runs, fx_rates, providers CASCADE`)
+	_, _ = pool.Exec(ctx, `DROP SCHEMA public CASCADE; CREATE SCHEMA public;`)
 
 	if err := Migrate(url); err != nil {
 		t.Fatalf("Migrate: %v", err)
