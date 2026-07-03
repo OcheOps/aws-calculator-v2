@@ -21,6 +21,7 @@ import (
 	httpx "github.com/OcheOps/aws-calculator/api/internal/http"
 	"github.com/OcheOps/aws-calculator/api/internal/httpapi"
 	"github.com/OcheOps/aws-calculator/api/internal/ingest"
+	"github.com/OcheOps/aws-calculator/api/internal/ingest/pricefiles"
 	"github.com/OcheOps/aws-calculator/api/internal/mail"
 	"github.com/OcheOps/aws-calculator/api/internal/pricing"
 	"github.com/OcheOps/aws-calculator/api/internal/providers"
@@ -55,7 +56,7 @@ func main() {
 	defer pool.Close()
 
 	registry := providers.NewRegistry()
-	if err := registerAWS(ctx, registry, cfg, logger); err != nil {
+	if err := registerAWS(ctx, registry, cfg, logger, pool); err != nil {
 		logger.Warn("aws provider not registered", "err", err)
 	}
 
@@ -150,7 +151,7 @@ func main() {
 	logger.Info("shutdown complete")
 }
 
-func registerAWS(ctx context.Context, registry *providers.Registry, cfg config.Config, logger *slog.Logger) error {
+func registerAWS(ctx context.Context, registry *providers.Registry, cfg config.Config, logger *slog.Logger, pool *pgxpool.Pool) error {
 	if cfg.AWS.AccessKeyID == "" || cfg.AWS.SecretAccessKey == "" {
 		return fmt.Errorf("AWS credentials not configured; ingestion disabled")
 	}
@@ -160,14 +161,31 @@ func registerAWS(ctx context.Context, registry *providers.Registry, cfg config.C
 	}
 	client := awsprov.NewClient(sdk)
 	regions := []string{"us-east-1", "us-west-2", "eu-west-1"}
-	ing := awsprov.NewIngestor(client, regions)
+
+	var runFn func(ctx context.Context, deps providers.IngestDeps) error
+	switch cfg.IngestMode {
+	case "bulk", "":
+		bulkClient := awsprov.NewBulkClient(sdk)
+		pfStore := pricefiles.NewStore(pool)
+		ing := awsprov.NewBulkIngestor(client, bulkClient, pfStore, regions, cfg.IngestRegionConcurrency, cfg.IngestBatchSize)
+		runFn = func(ctx context.Context, deps providers.IngestDeps) error {
+			return ing.Run(ctx, deps.DB)
+		}
+		logger.Info("aws provider registered", "mode", "bulk", "regions", regions, "concurrency", cfg.IngestRegionConcurrency, "batchSize", cfg.IngestBatchSize)
+	case "paged":
+		ing := awsprov.NewIngestor(client, regions)
+		runFn = func(ctx context.Context, deps providers.IngestDeps) error {
+			return ing.Run(ctx, deps.DB)
+		}
+		logger.Info("aws provider registered", "mode", "paged", "regions", regions)
+	default:
+		return fmt.Errorf("unknown INGEST_MODE %q (want bulk|paged)", cfg.IngestMode)
+	}
+
 	registry.Register(providerAdapter{
 		meta: providers.Metadata{Code: "aws", Name: "Amazon Web Services"},
-		run: func(ctx context.Context, deps providers.IngestDeps) error {
-			return ing.Run(ctx, deps.DB)
-		},
+		run:  runFn,
 	})
-	logger.Info("aws provider registered", "regions", regions)
 	return nil
 }
 

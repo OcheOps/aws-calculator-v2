@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/OcheOps/aws-calculator/api/internal/db"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -38,6 +39,14 @@ func (f *fixtureSDK) DescribeService(ctx context.Context, code string) ([]string
 }
 func (f *fixtureSDK) GetProducts(ctx context.Context, code, region, token string) ([]json.RawMessage, string, error) {
 	return f.products, "", nil
+}
+
+func (f *fixtureSDK) ListPriceLists(ctx context.Context, serviceCode string, effective time.Time) ([]PriceListRef, error) {
+	return nil, nil
+}
+
+func (f *fixtureSDK) GetPriceListFileURL(ctx context.Context, arn, format string) (string, error) {
+	return "", nil
 }
 
 func TestIngest_PopulatesStagingAndDimensions(t *testing.T) {

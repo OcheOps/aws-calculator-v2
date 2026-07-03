@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"testing"
+	"time"
 )
 
 type fakeSDK struct {
@@ -28,6 +29,14 @@ func (f *fakeSDK) GetProducts(ctx context.Context, code, region, token string) (
 		out = append(out, json.RawMessage(p))
 	}
 	return out, "", nil
+}
+
+func (f *fakeSDK) ListPriceLists(ctx context.Context, serviceCode string, effective time.Time) ([]PriceListRef, error) {
+	return nil, nil
+}
+
+func (f *fakeSDK) GetPriceListFileURL(ctx context.Context, arn, format string) (string, error) {
+	return "", nil
 }
 
 func TestClient_ListServices(t *testing.T) {
