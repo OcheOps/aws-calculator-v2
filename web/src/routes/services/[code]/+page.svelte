@@ -71,7 +71,7 @@
 	});
 </script>
 
-<div class="grid gap-8 md:grid-cols-[1fr,340px]">
+<div class="grid gap-8 md:grid-cols-[1fr_340px]">
 	<div class="space-y-6">
 		<div>
 			<h1 class="text-2xl font-semibold tracking-tight">{data.service.name}</h1>

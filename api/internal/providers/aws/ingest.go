@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"strings"
 	"time"
 
@@ -50,11 +51,21 @@ func (i *Ingestor) Run(ctx context.Context, pool *pgxpool.Pool) error {
 	if err != nil {
 		return err
 	}
+	slog.Info("ingest run", "services", len(services), "regions", i.regions)
+	failed := 0
 	for _, code := range services {
 		if err := i.ingestService(ctx, pool, providerID, code); err != nil {
-			return fmt.Errorf("service %s: %w", code, err)
+			// One broken service should not abort a multi-hour run; log and
+			// continue so the staging swap still produces a mostly-complete
+			// catalog.
+			slog.Warn("ingest service failed; skipping", "service", code, "err", err)
+			failed++
 		}
 	}
+	if failed == len(services) && len(services) > 0 {
+		return fmt.Errorf("all %d services failed to ingest", failed)
+	}
+	slog.Info("ingest run finished", "services", len(services), "failed", failed)
 	return nil
 }
 
@@ -74,34 +85,62 @@ func (i *Ingestor) ingestService(ctx context.Context, pool *pgxpool.Pool, provid
 		return err
 	}
 
+	slog.Info("ingest service", "service", code, "regions", len(i.regions))
 	for _, region := range i.regions {
+		start := time.Now()
 		if err := i.ingestRegion(ctx, pool, serviceID, code, region); err != nil {
-			return fmt.Errorf("region %s: %w", region, err)
+			// Non-fatal: skip this service/region and continue the run so a
+			// single stubborn combo can't fail the whole catalog refresh.
+			slog.Warn("ingest region failed; skipping",
+				"service", code, "region", region, "err", err, "elapsed", time.Since(start))
+			continue
 		}
+		slog.Info("ingest region complete",
+			"service", code, "region", region, "elapsed", time.Since(start))
 	}
 	return nil
 }
 
 func (i *Ingestor) ingestRegion(ctx context.Context, pool *pgxpool.Pool, serviceID int64, code, region string) error {
-	token := ""
-	for {
-		if err := i.wait(ctx); err != nil {
-			return err
-		}
-		products, next, err := i.getProductsWithRetry(ctx, code, region, token)
-		if err != nil {
-			return err
-		}
-		for _, raw := range products {
-			if err := insertProduct(ctx, pool, serviceID, region, raw); err != nil {
+	// AWS Pricing NextTokens expire after ~5 minutes. Any retry that outlasts
+	// that window will produce ExpiredNextTokenException. On that specific
+	// error we restart the region from page 1; staging_sku_prices has
+	// ON CONFLICT DO NOTHING so duplicate rows are absorbed.
+	const maxRegionRestarts = 4
+	for restart := 0; restart <= maxRegionRestarts; restart++ {
+		token := ""
+		for {
+			if err := i.wait(ctx); err != nil {
 				return err
 			}
+			products, next, err := i.getProductsWithRetry(ctx, code, region, token)
+			if err != nil {
+				if isExpiredToken(err) && restart < maxRegionRestarts {
+					slog.Warn("aws pricing NextToken expired; restarting region",
+						"service", code, "region", region, "restart", restart+1)
+					break
+				}
+				return err
+			}
+			for _, raw := range products {
+				if err := insertProduct(ctx, pool, serviceID, region, raw); err != nil {
+					return err
+				}
+			}
+			if next == "" {
+				return nil
+			}
+			token = next
 		}
-		if next == "" {
-			return nil
-		}
-		token = next
 	}
+	return fmt.Errorf("service %s region %s: NextToken kept expiring after %d restarts", code, region, maxRegionRestarts)
+}
+
+func isExpiredToken(err error) bool {
+	if err == nil {
+		return false
+	}
+	return strings.Contains(err.Error(), "ExpiredNextTokenException")
 }
 
 // getProductsWithRetry wraps GetProducts with a short exponential backoff for
