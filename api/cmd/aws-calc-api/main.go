@@ -16,6 +16,7 @@ import (
 	"github.com/OcheOps/aws-calculator/api/internal/catalog"
 	"github.com/OcheOps/aws-calculator/api/internal/config"
 	"github.com/OcheOps/aws-calculator/api/internal/db"
+	"github.com/OcheOps/aws-calculator/api/internal/estimates"
 	"github.com/OcheOps/aws-calculator/api/internal/fx"
 	httpx "github.com/OcheOps/aws-calculator/api/internal/http"
 	"github.com/OcheOps/aws-calculator/api/internal/httpapi"
@@ -101,11 +102,15 @@ func main() {
 	} else {
 		logger.Warn("no SMTP credentials; using fake mailer (messages logged only)")
 	}
+	authStore := auth.NewStore(pool)
 	authSvc := auth.NewService(
-		auth.NewStore(pool), mailer,
+		authStore, mailer,
 		auth.NewLimiter(5, time.Hour), auth.NewLimiter(5, time.Hour),
 		cfg.BaseURL,
 	)
+	estStore := estimates.NewStore(pool)
+	repricer := estimates.NewRepricer(estStore, priceLookup)
+	authSvc.WithClaimer(estStore)
 
 	router := httpx.NewRouter(httpx.Deps{
 		Ready:       combinedReady{pool: pool, catalog: httpx.CatalogReadiness{Store: store}},
@@ -116,6 +121,10 @@ func main() {
 		Pricing:     priceLookup,
 		Auth:        authSvc,
 		AuthOptions: httpapi.AuthOptions{SecureCookie: cfg.CookieSecure, CookieDomain: cfg.CookieDomain},
+		Estimates: httpapi.EstimatesDeps{
+			Store: estStore, Repricer: repricer,
+			AuthStore: authStore, BaseURL: cfg.BaseURL,
+		},
 	})
 
 	srv := &http.Server{

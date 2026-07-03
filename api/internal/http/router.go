@@ -21,6 +21,7 @@ type Deps struct {
 	Pricing     *pricing.Lookup
 	Auth        *auth.Service
 	AuthOptions httpapi.AuthOptions
+	Estimates   httpapi.EstimatesDeps
 }
 
 func NewRouter(d Deps) http.Handler {
@@ -50,6 +51,10 @@ func NewRouter(d Deps) http.Handler {
 		}
 		if d.Auth != nil {
 			httpapi.MountAuth(r, d.Auth, d.AuthOptions)
+		}
+		if d.Estimates.Store != nil {
+			httpapi.MountEstimates(r, d.Estimates)
+			httpapi.MountShared(r, d.Estimates.Store)
 		}
 	})
 
