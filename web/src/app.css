@@ -3,6 +3,24 @@
 @theme {
   --font-sans: 'Inter', ui-sans-serif, system-ui, sans-serif;
   --font-mono: 'JetBrains Mono', ui-monospace, monospace;
+
+  --color-surface: #ffffff;
+  --color-surface-elev: #fafafa;
+  --color-border: #e5e5e5;
+  --color-text: #0a0a0a;
+  --color-text-muted: #525252;
+  --color-accent: #0f172a;
+  --color-accent-fg: #f8fafc;
+}
+
+.dark {
+  --color-surface: #0a0a0a;
+  --color-surface-elev: #171717;
+  --color-border: #262626;
+  --color-text: #fafafa;
+  --color-text-muted: #a3a3a3;
+  --color-accent: #f8fafc;
+  --color-accent-fg: #0a0a0a;
 }
 
 html {
@@ -10,6 +28,15 @@ html {
   font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11';
 }
 
+body {
+  background: var(--color-surface);
+  color: var(--color-text);
+}
+
 .tnum {
   font-variant-numeric: tabular-nums;
+}
+
+.mono {
+  font-family: var(--font-mono);
 }
