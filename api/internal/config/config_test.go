@@ -43,3 +43,44 @@ func TestLoad_RequiresAdminToken(t *testing.T) {
 		t.Fatal("expected error when ADMIN_TOKEN missing")
 	}
 }
+
+func TestLoad_ParsesAWSCredentials(t *testing.T) {
+	t.Setenv("API_DATABASE_URL", "postgres://x/y")
+	t.Setenv("ADMIN_TOKEN", "t")
+	t.Setenv("AWS_ACCESS_KEY_ID", "AKIA")
+	t.Setenv("AWS_SECRET_ACCESS_KEY", "sk")
+	t.Setenv("AWS_PRICING_REGION", "us-east-1")
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.AWS.AccessKeyID != "AKIA" || cfg.AWS.SecretAccessKey != "sk" || cfg.AWS.PricingRegion != "us-east-1" {
+		t.Errorf("aws config = %+v", cfg.AWS)
+	}
+}
+
+func TestLoad_DefaultAWSRegion(t *testing.T) {
+	t.Setenv("API_DATABASE_URL", "postgres://x/y")
+	t.Setenv("ADMIN_TOKEN", "t")
+	t.Setenv("AWS_PRICING_REGION", "")
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.AWS.PricingRegion != "us-east-1" {
+		t.Errorf("PricingRegion = %q, want us-east-1", cfg.AWS.PricingRegion)
+	}
+}
+
+func TestLoad_IngestSchedule(t *testing.T) {
+	t.Setenv("API_DATABASE_URL", "postgres://x/y")
+	t.Setenv("ADMIN_TOKEN", "t")
+	t.Setenv("INGEST_CRON", "")
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.IngestCron != "0 3 * * *" {
+		t.Errorf("IngestCron = %q, want '0 3 * * *'", cfg.IngestCron)
+	}
+}
