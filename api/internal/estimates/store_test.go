@@ -110,3 +110,66 @@ func TestStore_ShareRoundTrip(t *testing.T) {
 		t.Error("expected error for bogus token")
 	}
 }
+
+func TestStore_AddCuratedItemRoundTrip(t *testing.T) {
+	s, svcID, orgID, ctx := seed(t)
+	est, _, _ := s.Create(ctx, CreateInput{Name: "curated", Currency: "USD", OrgID: &orgID})
+
+	input := map[string]any{
+		"instanceType":  "m5.large",
+		"operatingSystem": "Linux",
+		"count":         float64(2),
+		"hoursPerMonth": float64(730),
+	}
+	comps := []Component{
+		{
+			SKU: "EC2-COMPUTE-SKU", Unit: "Hrs",
+			Quantity:    decimal.NewFromInt(1460),
+			UnitPrice:   decimal.NewFromFloat(0.096),
+			MonthlyCost: decimal.NewFromFloat(140.16),
+			Currency:    "USD",
+			Attributes:  map[string]string{"instanceType": "m5.large"},
+			Region:      "us-east-1",
+			Service:     "AmazonEC2",
+		},
+	}
+	item, err := s.AddCuratedItem(ctx, est.ID, AddCuratedItemInput{
+		ServiceID:         svcID,
+		ServiceKey:        "ec2",
+		RegionCode:        "us-east-1",
+		SyntheticSKU:      "curated:ec2:v1",
+		Currency:          "USD",
+		UserInputSnapshot: input,
+		Components:        comps,
+	})
+	if err != nil {
+		t.Fatalf("AddCuratedItem: %v", err)
+	}
+	if item.LineType != LineTypeCurated || item.ServiceKey != "ec2" {
+		t.Errorf("wrong line metadata: %+v", item)
+	}
+	if !item.MonthlyCostSnapshot.Equal(decimal.NewFromFloat(140.16)) {
+		t.Errorf("monthly = %s, want 140.16", item.MonthlyCostSnapshot)
+	}
+
+	got, err := s.Get(ctx, est.ID)
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if len(got.Items) != 1 {
+		t.Fatalf("items = %d, want 1", len(got.Items))
+	}
+	back := got.Items[0]
+	if back.LineType != LineTypeCurated {
+		t.Errorf("LineType = %q", back.LineType)
+	}
+	if back.ServiceKey != "ec2" {
+		t.Errorf("ServiceKey = %q", back.ServiceKey)
+	}
+	if len(back.ComponentsSnapshot) != 1 || back.ComponentsSnapshot[0].SKU != "EC2-COMPUTE-SKU" {
+		t.Errorf("components lost: %+v", back.ComponentsSnapshot)
+	}
+	if back.UserInputSnapshot == nil {
+		t.Errorf("user input snapshot missing")
+	}
+}
