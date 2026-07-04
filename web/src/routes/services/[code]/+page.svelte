@@ -1,13 +1,11 @@
 <script lang="ts">
 	import DimensionForm from '$lib/components/DimensionForm.svelte';
-	import EstimateCart from '$lib/components/EstimateCart.svelte';
 	import PriceBadge from '$lib/components/PriceBadge.svelte';
 	import MatchQualityBadge from '$lib/components/MatchQualityBadge.svelte';
 	import Card from '$lib/components/Card.svelte';
 	import Button from '$lib/components/Button.svelte';
 	import Input from '$lib/components/Input.svelte';
 	import { currency } from '$lib/stores/currency.svelte';
-	import { cart } from '$lib/stores/cart.svelte';
 	import { makeApi } from '$lib/api/client';
 	import { humaniseUnit } from '$lib/utils/labels';
 	import { page } from '$app/state';
@@ -142,6 +140,5 @@
 				</p>
 			{/if}
 		</Card>
-		<EstimateCart />
 	</aside>
 </div>

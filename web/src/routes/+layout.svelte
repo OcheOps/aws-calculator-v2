@@ -22,9 +22,6 @@
 		<div class="mx-auto flex max-w-6xl items-center justify-between px-6 py-4">
 			<a href="/" class="text-sm font-semibold tracking-tight">AWS Calculator</a>
 			<nav class="flex items-center gap-6 text-sm">
-				<a href="/services" class="text-[--color-text-muted] hover:text-[--color-text]">
-					Services
-				</a>
 				{#if user}
 					<a href="/estimates" class="text-[--color-text-muted] hover:text-[--color-text]">
 						Estimates
