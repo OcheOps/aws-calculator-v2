@@ -71,6 +71,19 @@ type AddItemInput struct {
 	Currency   string
 }
 
+// AddCuratedItemInput is used by curated services (EC2, RDS, S3, …). The
+// caller supplies the resolved priced components; the store persists them
+// verbatim and sums monthly_cost.
+type AddCuratedItemInput struct {
+	ServiceID         int64
+	ServiceKey        string // 'ec2', 'rds', …
+	RegionCode        string
+	SyntheticSKU      string // 'curated:ec2:v1'
+	Currency          string
+	UserInputSnapshot any
+	Components        []Component
+}
+
 func (s *Store) AddItem(ctx context.Context, estimateID int64, in AddItemInput) (*Item, error) {
 	monthly := MonthlyCost(in.Unit, in.UnitPrice, in.Quantity)
 	attrs, err := json.Marshal(in.Attributes)
@@ -79,14 +92,18 @@ func (s *Store) AddItem(ctx context.Context, estimateID int64, in AddItemInput) 
 	}
 	var item Item
 	err = s.pool.QueryRow(ctx, `
-		INSERT INTO estimate_items (estimate_id, service_id, region_code, sku, quantity, unit_override, attributes_snapshot, unit_price_snapshot, currency_snapshot, monthly_cost_snapshot)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+		INSERT INTO estimate_items (
+			estimate_id, service_id, region_code, sku, quantity, unit_override,
+			attributes_snapshot, unit_price_snapshot, currency_snapshot,
+			monthly_cost_snapshot, line_type)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'legacy')
 		RETURNING id`,
 		estimateID, in.ServiceID, in.RegionCode, in.SKU, in.Quantity.String(), in.Unit, attrs, in.UnitPrice.String(), in.Currency, monthly.String()).
 		Scan(&item.ID)
 	if err != nil {
 		return nil, err
 	}
+	item.LineType = LineTypeLegacy
 	item.EstimateID = estimateID
 	item.ServiceID = in.ServiceID
 	item.RegionCode = in.RegionCode
@@ -100,6 +117,70 @@ func (s *Store) AddItem(ctx context.Context, estimateID int64, in AddItemInput) 
 		return nil, err
 	}
 	return &item, nil
+}
+
+// AddCuratedItem inserts a curated line whose price is the sum of N
+// components. It records the raw user input for later reprice + export.
+func (s *Store) AddCuratedItem(ctx context.Context, estimateID int64, in AddCuratedItemInput) (*Item, error) {
+	if len(in.Components) == 0 {
+		return nil, fmt.Errorf("at least one component required")
+	}
+	monthly := decimal.NewFromInt(0)
+	for _, c := range in.Components {
+		monthly = monthly.Add(c.MonthlyCost)
+	}
+	userInput, err := json.Marshal(in.UserInputSnapshot)
+	if err != nil {
+		return nil, err
+	}
+	components, err := json.Marshal(in.Components)
+	if err != nil {
+		return nil, err
+	}
+	first := in.Components[0]
+	var item Item
+	err = s.pool.QueryRow(ctx, `
+		INSERT INTO estimate_items (
+			estimate_id, service_id, region_code, sku, quantity, unit_override,
+			attributes_snapshot, unit_price_snapshot, currency_snapshot,
+			monthly_cost_snapshot,
+			line_type, service_key, user_input_snapshot, components_snapshot
+		)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'curated', $11, $12, $13)
+		RETURNING id`,
+		estimateID, in.ServiceID, in.RegionCode, in.SyntheticSKU,
+		first.Quantity.String(), first.Unit,
+		mustJSON(first.Attributes),
+		first.UnitPrice.String(), in.Currency, monthly.String(),
+		in.ServiceKey, userInput, components).Scan(&item.ID)
+	if err != nil {
+		return nil, err
+	}
+	item.EstimateID = estimateID
+	item.LineType = LineTypeCurated
+	item.ServiceID = in.ServiceID
+	item.ServiceKey = in.ServiceKey
+	item.RegionCode = in.RegionCode
+	item.SKU = in.SyntheticSKU
+	item.CurrencySnapshot = in.Currency
+	item.MonthlyCostSnapshot = monthly
+	item.UnitPriceSnapshot = first.UnitPrice
+	item.Quantity = first.Quantity
+	item.Attributes = first.Attributes
+	item.UserInputSnapshot = in.UserInputSnapshot
+	item.ComponentsSnapshot = in.Components
+	if _, err := s.pool.Exec(ctx, `UPDATE estimates SET updated_at = NOW() WHERE id = $1`, estimateID); err != nil {
+		return nil, err
+	}
+	return &item, nil
+}
+
+func mustJSON(v any) []byte {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return []byte("null")
+	}
+	return b
 }
 
 func (s *Store) ClaimByEditTokens(ctx context.Context, orgID, userID int64, rawTokens []string) (int, error) {
@@ -128,7 +209,12 @@ func (s *Store) Get(ctx context.Context, id int64) (*Estimate, error) {
 		return nil, err
 	}
 	rows, err := s.pool.Query(ctx, `
-		SELECT ei.id, ei.estimate_id, ei.service_id, s.code, ei.region_code, ei.sku, ei.quantity::text, ei.attributes_snapshot, ei.unit_price_snapshot::text, ei.currency_snapshot, ei.monthly_cost_snapshot::text
+		SELECT ei.id, ei.estimate_id, ei.service_id, s.code, ei.region_code,
+		       ei.sku, ei.quantity::text, ei.attributes_snapshot,
+		       ei.unit_price_snapshot::text, ei.currency_snapshot,
+		       ei.monthly_cost_snapshot::text,
+		       ei.line_type, COALESCE(ei.service_key,''),
+		       ei.user_input_snapshot, ei.components_snapshot
 		FROM estimate_items ei JOIN services s ON s.id = ei.service_id
 		WHERE ei.estimate_id = $1 ORDER BY ei.id`, id)
 	if err != nil {
@@ -140,13 +226,26 @@ func (s *Store) Get(ctx context.Context, id int64) (*Estimate, error) {
 		var it Item
 		var qty, price, monthly string
 		var attrs []byte
-		if err := rows.Scan(&it.ID, &it.EstimateID, &it.ServiceID, &it.ServiceCode, &it.RegionCode, &it.SKU, &qty, &attrs, &price, &it.CurrencySnapshot, &monthly); err != nil {
+		var lineType string
+		var userInput, components []byte
+		if err := rows.Scan(
+			&it.ID, &it.EstimateID, &it.ServiceID, &it.ServiceCode, &it.RegionCode,
+			&it.SKU, &qty, &attrs, &price, &it.CurrencySnapshot, &monthly,
+			&lineType, &it.ServiceKey, &userInput, &components,
+		); err != nil {
 			return nil, err
 		}
+		it.LineType = LineType(lineType)
 		it.Quantity, _ = decimal.NewFromString(qty)
 		it.UnitPriceSnapshot, _ = decimal.NewFromString(price)
 		it.MonthlyCostSnapshot, _ = decimal.NewFromString(monthly)
 		_ = json.Unmarshal(attrs, &it.Attributes)
+		if len(userInput) > 0 && string(userInput) != "null" {
+			_ = json.Unmarshal(userInput, &it.UserInputSnapshot)
+		}
+		if len(components) > 0 && string(components) != "null" {
+			_ = json.Unmarshal(components, &it.ComponentsSnapshot)
+		}
 		est.Items = append(est.Items, it)
 		total = total.Add(it.MonthlyCostSnapshot)
 	}
