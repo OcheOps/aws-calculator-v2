@@ -61,3 +61,28 @@ func TestWriteJSON_HasVersion(t *testing.T) {
 		t.Errorf("body = %+v", body)
 	}
 }
+
+func TestExport_CuratedSummary(t *testing.T) {
+	est := &estimates.Estimate{
+		Name: "curated", Currency: "USD", Total: decimal.NewFromFloat(140.16),
+		Items: []estimates.Item{{
+			LineType:    estimates.LineTypeCurated,
+			ServiceKey:  "ec2",
+			ServiceCode: "AmazonEC2",
+			RegionCode:  "us-east-1",
+			SKU:         "curated:ec2:v1",
+			Quantity:    decimal.NewFromInt(1460),
+			UnitPriceSnapshot: decimal.NewFromFloat(0.096),
+			MonthlyCostSnapshot: decimal.NewFromFloat(140.16),
+			CurrencySnapshot: "USD",
+			UserInputSnapshot: map[string]any{
+				"count": float64(2), "instanceType": "m5.large",
+				"hoursPerMonth": float64(730), "operatingSystem": "Linux",
+			},
+		}},
+	}
+	got := LineSummary(est.Items[0])
+	if !strings.Contains(got, "EC2") || !strings.Contains(got, "m5.large") || !strings.Contains(got, "Linux") {
+		t.Errorf("summary = %q", got)
+	}
+}
