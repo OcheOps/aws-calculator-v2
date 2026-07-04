@@ -93,3 +93,26 @@ export type Envelope<T> = {
 	meta?: { next_cursor?: string; count?: number };
 	error?: { code: string; message: string };
 };
+
+export type PricedComponentBody = {
+	service_code: string;
+	region_code: string;
+	sku: string;
+	unit: string;
+	quantity: string;
+	unit_price: string;
+	monthly_cost: string;
+	currency: string;
+	attributes: Record<string, string>;
+};
+
+export type AddCuratedItemBody = {
+	line_type: 'curated';
+	service_id: number;
+	service_key: string;
+	region_code: string;
+	sku: string;
+	currency: string;
+	user_input: unknown;
+	components: PricedComponentBody[];
+};

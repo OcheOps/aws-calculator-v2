@@ -10,7 +10,8 @@ import type {
 	Estimate,
 	EstimateItem,
 	User,
-	PriceDelta
+	PriceDelta,
+	AddCuratedItemBody
 } from './types';
 
 const isBrowser = typeof window !== 'undefined';
@@ -114,6 +115,12 @@ export function makeApi(fetchImpl: FetchImpl = fetch, cookieHeader?: string) {
 			},
 			editToken?: string
 		) =>
+			request<EstimateItem>(`/estimates/${id}/items`, {
+				method: 'POST',
+				body: JSON.stringify(body),
+				headers: editToken ? { 'X-Edit-Token': editToken } : {}
+			}),
+		addCuratedItem: (id: number, body: AddCuratedItemBody, editToken?: string) =>
 			request<EstimateItem>(`/estimates/${id}/items`, {
 				method: 'POST',
 				body: JSON.stringify(body),
