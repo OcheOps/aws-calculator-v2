@@ -133,6 +133,70 @@ func TestEstimates_AnonymousFlow(t *testing.T) {
 	resp.Body.Close()
 }
 
+func TestEstimates_CuratedItemRoundTrip(t *testing.T) {
+	srv, svcID := setupEstimateHandlers(t)
+	defer srv.Close()
+	c := &http.Client{}
+
+	body, _ := json.Marshal(map[string]any{"name": "curated", "currency": "USD"})
+	resp, _ := c.Post(srv.URL+"/api/v1/estimates", "application/json", bytes.NewReader(body))
+	var created struct {
+		Data struct {
+			Estimate  estimates.Estimate `json:"estimate"`
+			EditToken string             `json:"edit_token"`
+		} `json:"data"`
+	}
+	json.NewDecoder(resp.Body).Decode(&created)
+	resp.Body.Close()
+	id := created.Data.Estimate.ID
+
+	item := map[string]any{
+		"line_type":   "curated",
+		"service_id":  svcID,
+		"service_key": "ec2",
+		"region_code": "us-east-1",
+		"sku":         "curated:ec2:v1",
+		"currency":    "USD",
+		"user_input":  map[string]any{"instanceType": "m5.large", "count": 2},
+		"components": []map[string]any{{
+			"service_code": "AmazonEC2",
+			"region_code":  "us-east-1",
+			"sku":          "EC2-COMPUTE",
+			"unit":         "Hrs",
+			"quantity":     "1460",
+			"unit_price":   "0.096",
+			"monthly_cost": "140.16",
+			"currency":     "USD",
+			"attributes":   map[string]string{"instanceType": "m5.large"},
+		}},
+	}
+	buf, _ := json.Marshal(item)
+	req, _ := http.NewRequest("POST", srv.URL+"/api/v1/estimates/"+itoa(id)+"/items", bytes.NewReader(buf))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Edit-Token", created.Data.EditToken)
+	resp, err := c.Do(req)
+	if err != nil || resp.StatusCode != http.StatusCreated {
+		t.Fatalf("post curated status=%v err=%v", resp.StatusCode, err)
+	}
+	resp.Body.Close()
+
+	req, _ = http.NewRequest("GET", srv.URL+"/api/v1/estimates/"+itoa(id), nil)
+	req.Header.Set("X-Edit-Token", created.Data.EditToken)
+	resp, _ = c.Do(req)
+	var got struct{ Data estimates.Estimate }
+	json.NewDecoder(resp.Body).Decode(&got)
+	resp.Body.Close()
+	if len(got.Data.Items) != 1 {
+		t.Fatalf("items = %d", len(got.Data.Items))
+	}
+	if got.Data.Items[0].LineType != estimates.LineTypeCurated {
+		t.Errorf("LineType = %q", got.Data.Items[0].LineType)
+	}
+	if len(got.Data.Items[0].ComponentsSnapshot) != 1 {
+		t.Errorf("components = %d", len(got.Data.Items[0].ComponentsSnapshot))
+	}
+}
+
 func itoa(n int64) string {
 	if n == 0 {
 		return "0"

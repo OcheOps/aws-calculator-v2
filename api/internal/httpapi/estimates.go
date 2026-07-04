@@ -171,7 +171,9 @@ func addItem(d EstimatesDeps) http.HandlerFunc {
 			return
 		}
 		var body struct {
+			LineType   string            `json:"line_type"`
 			ServiceID  int64             `json:"service_id"`
+			ServiceKey string            `json:"service_key"`
 			RegionCode string            `json:"region_code"`
 			SKU        string            `json:"sku"`
 			Quantity   string            `json:"quantity"`
@@ -179,11 +181,58 @@ func addItem(d EstimatesDeps) http.HandlerFunc {
 			UnitPrice  string            `json:"unit_price"`
 			Unit       string            `json:"unit"`
 			Currency   string            `json:"currency"`
+			// Curated-only:
+			UserInput  json.RawMessage `json:"user_input"`
+			Components []struct {
+				Service     string            `json:"service_code"`
+				Region      string            `json:"region_code"`
+				SKU         string            `json:"sku"`
+				Unit        string            `json:"unit"`
+				Quantity    string            `json:"quantity"`
+				UnitPrice   string            `json:"unit_price"`
+				MonthlyCost string            `json:"monthly_cost"`
+				Currency    string            `json:"currency"`
+				Attributes  map[string]string `json:"attributes"`
+			} `json:"components"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 			WriteError(w, http.StatusBadRequest, "bad_request", err.Error())
 			return
 		}
+		if body.LineType == "curated" {
+			var userInput any
+			_ = json.Unmarshal(body.UserInput, &userInput)
+			comps := make([]estimates.Component, 0, len(body.Components))
+			for _, c := range body.Components {
+				qty, _ := decimal.NewFromString(c.Quantity)
+				up, _ := decimal.NewFromString(c.UnitPrice)
+				m, _ := decimal.NewFromString(c.MonthlyCost)
+				comps = append(comps, estimates.Component{
+					SKU: c.SKU, Unit: c.Unit,
+					Quantity: qty, UnitPrice: up, MonthlyCost: m,
+					Currency:   c.Currency,
+					Attributes: c.Attributes,
+					Region:     c.Region,
+					Service:    c.Service,
+				})
+			}
+			item, err := d.Store.AddCuratedItem(r.Context(), id, estimates.AddCuratedItemInput{
+				ServiceID:         body.ServiceID,
+				ServiceKey:        body.ServiceKey,
+				RegionCode:        body.RegionCode,
+				SyntheticSKU:      body.SKU,
+				Currency:          body.Currency,
+				UserInputSnapshot: userInput,
+				Components:        comps,
+			})
+			if err != nil {
+				WriteError(w, http.StatusInternalServerError, "internal", err.Error())
+				return
+			}
+			WriteData(w, http.StatusCreated, item, nil)
+			return
+		}
+		// legacy path (unchanged)
 		qty, _ := decimal.NewFromString(body.Quantity)
 		price, _ := decimal.NewFromString(body.UnitPrice)
 		item, err := d.Store.AddItem(r.Context(), id, estimates.AddItemInput{
