@@ -34,6 +34,18 @@ export type PriceResponse = {
 	fx_as_of?: string;
 };
 
+export type PricedComponent = {
+	service_code: string;
+	region_code: string;
+	sku: string;
+	unit: string;
+	quantity: string;
+	unit_price: string;
+	monthly_cost: string;
+	currency: string;
+	attributes: Record<string, string>;
+};
+
 export type EstimateItem = {
 	id: number;
 	estimate_id: number;
@@ -46,6 +58,10 @@ export type EstimateItem = {
 	unit_price: string;
 	currency: string;
 	monthly_cost: string;
+	line_type: 'legacy' | 'curated';
+	service_key?: string;
+	user_input?: unknown;
+	components?: PricedComponent[];
 };
 
 export type Estimate = {
