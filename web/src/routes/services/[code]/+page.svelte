@@ -10,6 +10,8 @@
 	import { cart } from '$lib/stores/cart.svelte';
 	import { makeApi } from '$lib/api/client';
 	import { humaniseUnit } from '$lib/utils/labels';
+	import { page } from '$app/state';
+	import { goto } from '$app/navigation';
 	import type { PriceResponse } from '$lib/api/types';
 
 	const api = makeApi();
@@ -45,24 +47,40 @@
 		}
 	}
 
-	function addToEstimate() {
+	async function addToEstimate() {
 		if (!livePrice || !lastPayload) return;
-		const monthlyMultiplier = /^hr?s?|hour/i.test(livePrice.unit) ? 730 : 1;
-		const unitPrice = parseFloat(livePrice.price_per_unit);
+		const to = page.url.searchParams.get('to');
+		const edit = page.url.searchParams.get('edit') ?? undefined;
 		const qty = parseFloat(quantity) || 1;
-		const monthly = (unitPrice * qty * monthlyMultiplier).toString();
-		cart.add({
-			service_id: data.service.id,
-			service_code: data.service.code,
-			region_code: lastPayload.region,
-			sku: livePrice.sku,
-			unit: livePrice.unit,
-			unit_price: livePrice.price_per_unit,
-			currency: livePrice.currency,
-			quantity,
-			attributes: lastPayload.attributes,
-			monthly_cost: monthly
-		});
+		if (to) {
+			// Advanced mode: POST directly to the target estimate, then bounce back.
+			try {
+				await api.addItem(
+					Number(to),
+					{
+						service_id: data.service.id,
+						region_code: lastPayload.region,
+						sku: livePrice.sku,
+						quantity: String(qty),
+						attributes: lastPayload.attributes,
+						unit_price: livePrice.price_per_unit,
+						unit: livePrice.unit,
+						currency: livePrice.currency
+					},
+					edit
+				);
+				const q = edit ? `?edit=${encodeURIComponent(edit)}` : '';
+				await goto(`/estimates/${to}${q}`);
+				return;
+			} catch (e) {
+				alert(`Could not add: ${(e as Error).message}`);
+				return;
+			}
+		}
+		// Fallback (no ?to=): behaviour is intentionally a no-op in the new
+		// design. The service-detail page is only meant to be reached from the
+		// AddResourceSheet's Advanced link, which always sets ?to=.
+		alert('Open this page from an estimate to add resources.');
 	}
 
 	// Refresh price when the display currency changes.
