@@ -30,24 +30,55 @@ func (r *Repricer) Preview(ctx context.Context, estimateID int64) ([]PriceDelta,
 	}
 	deltas := make([]PriceDelta, 0, len(est.Items))
 	for _, it := range est.Items {
-		res, err := r.lookup.Price(ctx, pricing.LookupInput{
-			ServiceCode: it.ServiceCode,
-			Region:      it.RegionCode,
-			Attributes:  it.Attributes,
-			Currency:    it.CurrencySnapshot,
-			TermType:    "OnDemand",
-		})
-		if err != nil {
-			continue
+		newMonthly := decimal.NewFromInt(0)
+		newUnit := decimal.NewFromInt(0)
+		currency := it.CurrencySnapshot
+
+		if it.LineType == LineTypeCurated && len(it.ComponentsSnapshot) > 0 {
+			ok := true
+			for _, c := range it.ComponentsSnapshot {
+				res, err := r.lookup.Price(ctx, pricing.LookupInput{
+					ServiceCode: c.Service,
+					Region:      c.Region,
+					Attributes:  c.Attributes,
+					Currency:    currency,
+					TermType:    "OnDemand",
+				})
+				if err != nil {
+					ok = false
+					break
+				}
+				monthly := MonthlyCost(res.Unit, res.PricePerUnit, c.Quantity)
+				newMonthly = newMonthly.Add(monthly)
+				newUnit = res.PricePerUnit
+				currency = res.Currency
+			}
+			if !ok {
+				continue
+			}
+		} else {
+			res, err := r.lookup.Price(ctx, pricing.LookupInput{
+				ServiceCode: it.ServiceCode,
+				Region:      it.RegionCode,
+				Attributes:  it.Attributes,
+				Currency:    currency,
+				TermType:    "OnDemand",
+			})
+			if err != nil {
+				continue
+			}
+			newUnit = res.PricePerUnit
+			newMonthly = MonthlyCost(res.Unit, res.PricePerUnit, it.Quantity)
+			currency = res.Currency
 		}
-		newMonthly := MonthlyCost(res.Unit, res.PricePerUnit, it.Quantity)
+
 		deltas = append(deltas, PriceDelta{
 			ItemID:       it.ID,
 			OldUnitPrice: it.UnitPriceSnapshot,
-			NewUnitPrice: res.PricePerUnit,
+			NewUnitPrice: newUnit,
 			OldMonthly:   it.MonthlyCostSnapshot,
 			NewMonthly:   newMonthly,
-			Currency:     res.Currency,
+			Currency:     currency,
 		})
 	}
 	return deltas, nil
